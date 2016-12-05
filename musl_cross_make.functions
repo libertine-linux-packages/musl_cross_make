@@ -1,0 +1,612 @@
+# This file is part of libertine linux's package musl_cross_make. It is subject to the license terms in the COPYRIGHT file found in the top-level directory of this distribution and at https://raw.githubusercontent.com/libertine-linux-packages/musl_cross_make/master/COPYRIGHT. No part of libertine linux's package musl_cross_make, including this file, may be copied, modified, propagated, or distributed except according to the terms contained in the COPYRIGHT file.
+# Copyright © 2016 The developers of libertine linux's package musl_cross_make. See the COPYRIGHT file in the top-level directory of this distribution and at https://raw.githubusercontent.com/libertine-linux-packages/musl_cross_make/master/COPYRIGHT.
+
+
+variant=upstream
+
+
+case "$package" in
+	
+	build_musl_cross_make_*)
+		
+		depends build_fortify_headers
+		
+		depends build_musl_cross_make_musl
+		depends build_musl_cross_make_binutils
+		depends build_musl_cross_make_gcc
+		depends build_musl_cross_make_gmp
+		depends build_musl_cross_make_mpfr
+		depends build_musl_cross_make_isl
+		depends build_musl_cross_make_linux
+		
+		depends build_busybox
+		build_needs diff cat mv cp rm grep egrep uniq rmdir od tail cut env chmod tr head cut realpath touch expr sort basename dirname cmp true echo install sleep uname ls # Used in configure
+		build_needs getconf # Used in configure; only present in our patched getconf
+		build_needs date tar # Why ?
+		build_needs false # Needed to replace makeinfo
+		
+		#build_needs file # Used in configure!
+
+		# Needed for libgomp, but not actually called... yeah, right, good code, lads!
+		depends build_netbsd_src_byacc
+		build_needs byacc
+		
+		depends build_reflex
+		build_needs reflex
+		
+		# The version of patch in busybox seems unable to use the supplied patches
+		depends build_netbsd_src_patch
+		build_needs patch
+
+		depends build_gnumake
+		build_needs make
+
+		depends build_ccache
+		build_needs ccache
+		
+		depends build_perl
+		build_needs perl pod2man
+		
+		depends build_gnuconfig
+	
+		depends build_autoconf
+		build_needs autoconf autoheader autom4te autoreconf autoscan autoupdate ifnames
+	
+		depends build_automake
+		build_needs automake aclocal
+		
+		depends build_gnum4
+		build_needs m4
+		
+		depends build_slibtool
+		build_needs clibtool-static libtoolize realpath
+		
+		build_needs sed
+		_libertine_compile_musl_cross_make_adjustPatchesToSupportFortifySource()
+		{
+			sed -i \
+				-e 's;{ NATIVE_SYSTEM_HEADER_DIR, 0, 0, 0, 1, 2 },;{ NATIVE_SYSTEM_HEADER_DIR "/fortify", 0, 0, 0, 1, 2 }, { NATIVE_SYSTEM_HEADER_DIR "/fortify", 0, 0, 0, 1, 0 }, { NATIVE_SYSTEM_HEADER_DIR, 0, 0, 0, 1, 2 },;g' \
+				"$(libertine_public_sourcePath)"/../patch-versions/gcc/0001-musl.diff
+		}
+		
+		build_needs cat cp find xargs mv mkdir sed
+		_libertine_compile_musl_cross_make_prepareSources()
+		{
+			local sourcePackage
+			for sourcePackage in musl binutils gcc gmp mpc mpfr isl linux
+			do
+				local sourcePackageFolderPath="$(libertine_public_sourcePath)"/"$sourcePackage"-version
+
+				mkdir -m 0755 -p "$(libertine_public_sourcePath)"/"$sourcePackage"
+				
+				local upstream
+				for upstream in upstream fork tarball
+				do
+					local folderPath="$(libertine_public_originalPackagePath build_musl_cross_make_"$sourcePackage")"/"$upstream"
+					if [ -d "$folderPath" ]; then
+						libertine_public_copy "$folderPath"/. "$sourcePackageFolderPath"/
+						break
+					fi
+				done
+				
+				libertine_public_adjustShaBangAllFilesInPath "$sourcePackageFolderPath"
+				
+				local patchFile
+				set +f
+				for patchFile in "$(libertine_public_packagePath)"/patch-versions/"$sourcePackage"/*
+				do
+					set -f
+			
+					if [ ! -e "$patchFile" ]; then
+						continue
+					fi
+			
+					if [ ! -s "$patchFile" ]; then
+						continue
+					fi
+			
+					pushd "$sourcePackageFolderPath"
+						cat "$patchFile" | patch -p1 1>&2
+					popd
+		
+				done
+				set -f
+				
+				# harden sources using fortify_headers
+				if [ "$sourcePackage" = 'musl' ]; then
+					# not quite right, but it is efficient
+					mkdir -m 0755 -p "$sourcePackageFolderPath"/include/fortify
+					libertine_public_copy "$(libertine_public_originalPackagePath fortify_headers)"/source/include/. "$sourcePackageFolderPath"/include/fortify/
+					
+					# Adjust musl make so it copies everything in include/fortify when installing
+					sed -i \
+						-e 's,INCLUDES = \$(wildcard \$(srcdir)/include/\*.h \$(srcdir)/include/\*/\*.h),INCLUDES = $(wildcard $(srcdir)/include/*.h $(srcdir)/include/*/*.h $(srcdir)/include/*/*/*.h),g' \
+						"$sourcePackageFolderPath"/Makefile
+				fi
+				
+				# binutils lex files assumes glibc as c lib, not musl, and so assumes string.h (for memcpy) is included.
+				if [ "$sourcePackage" = 'binutils' ]; then
+					
+					sed -i \
+						-e 's;#include "sysinfo.h";#include <string.h>\n#include "sysinfo.h";g' \
+						"$sourcePackageFolderPath"/binutils/syslex.l
+					# "$sourcePackageFolderPath"/binutils/arlex.l should not need to be changed (now that we patch reflex)
+					
+				fi
+				
+				# Fix LIBS / LDFLAGS
+				case "$sourcePackage" in
+			
+					mpfr|mpc)
+
+						# Something attacks LDFLAGS and strips '-L.../gmp/.libs'!
+						sed -i \
+							-e 's/lib'$sourcePackage'_la_LIBADD = /lib'$sourcePackage'_la_LIBADD = @LDFLAGS@ /g' \
+							"$sourcePackageFolderPath"/src/Makefile.in
+					;;
+			
+					isl)
+				
+						set -- -i
+						local programToFix
+						for programToFix in polyhedron_sample polytope_scan polyhedron_detect_equalities cat closure
+						do
+							set -- "$@" -e 's/^isl_'"$programToFix"'_LDADD = libisl.la/isl_'"$programToFix"'_LDADD = libisl.la @MP_LIBS@/g'
+						done
+				
+						sed "$@" "$sourcePackageFolderPath"/Makefile.in
+					;;
+			
+				esac
+				
+				# Fix libtool
+				case "$sourcePackage" in
+			
+					musl|linux)
+						:
+					;;
+						
+					*)
+						libertine_public_autoconf_replaceWithKnownVersionOfConfigSub "$sourcePackageFolderPath"
+				
+						_libertine_compile_musl_cross_make_fixLibToolPostAutoreconf "$sourcePackageFolderPath"
+					;;
+			
+				esac
+				
+				# Fix bashisms		
+				case "$sourcePackage" in
+					
+					binutils)
+						sed -i \
+							-e 's;#!/bin/bash;#!'"$(libertine_public_PATH)"'/env sh;g' \
+							"$sourcePackageFolderPath"/ld/genscrba.sh
+					;;
+					
+					gcc)
+						sed -i \
+							-e 's;#!/bin/bash;#!'"$(libertine_public_PATH)"'/env sh;g' \
+							"$sourcePackageFolderPath"/libstdc++-v3/scripts/run_doxygen \
+							"$sourcePackageFolderPath"/gcc/dbgcnt.def
+					;;
+					
+				esac
+				
+				# Fix configure
+				set --
+				case "$sourcePackage" in
+					
+					binutils)
+						set -- bfd/configure binutils/configure gas/configure gprof/configure ld/configure opcodes/configure
+					;;
+					
+					gcc)
+						set -- boehm-gc/configure gcc/configure libatomic/configure libbacktrace/configure libcc1/configure libcilkrts/configure libffi/configure libgfortran/configure libgo/configure libgomp/configure libitm/configure libjava/classpath/configure libjava/configure libjava/libltdl/configure libmpx/configure libobjc/configure liboffloadmic/configure liboffloadmic/plugin/configure libquadmath/configure libsanitizer/configure libssp/configure libstdc++-v3/configure libvtv/configure lto-plugin/configure zlib/configure
+					;;
+					
+					gmp|isl|mpc|mpfr)
+						set -- configure
+					;;
+					
+				esac
+				local configureFile
+				for configureFile in "$@"
+				do
+					sed -i \
+						-e 's;/usr/bin/file;file;g' \
+						-e 's;/usr/bin/arch;arch;g' \
+						-e 's;/usr/bin/oslevel;oslevel;g' \
+						-e 's;/usr/bin/getconf;getconf;g' \
+						-e 's;/usr/bin/uname;uname;g' \
+						"$sourcePackageFolderPath"/"$configureFile"
+				done
+			done
+		}
+
+		build_needs sed
+		_libertine_compile_musl_cross_make_makefileFixes()
+		{
+			# Stop make from recreating extracted sources
+			sed -i -e 's/extract_all: | \$(SRC_DIRS)/extract_all:/g' "$(libertine_public_sourcePath)"/Makefile
+	
+			# Fix LC_ROOT issue and other problems: http://www.openwall.com/lists/musl/2016/05/01/3; ISL_SRCDIR fix is our own discovery
+			# Fix MAKE += ac_cv_prog_lex_root=lex.yy.c - causes problems
+			sed -i \
+				-e 's/\$\$(LC_ROOT)/$${LC_ROOT}/g' \
+				-e 's/"\$(GMP_SRCDIR)"/$(GMP_SRCDIR)/g' \
+				-e 's/"\$(MPC_SRCDIR)"/$(MPC_SRCDIR)/g' \
+				-e 's/"\$(MPFR_SRCDIR)"/$(MPFR_SRCDIR)/g' \
+				-e 's/"\$(ISL_SRCDIR)"/$(ISL_SRCDIR)/g' \
+				-e 's/ac_cv_prog_lex_root=lex.yy.c/ac_cv_prog_lex_root=lex.yy/g' \
+				litecross/Makefile
+		}
+
+		build_needs rm ln rmdir cp mkdir chmod find xargs
+		_libertine_compile_musl_cross_make_makeInstallAndLink()
+		{
+			local target="$1"
+			local targetShorter="$2"
+			local sysroot="$3"
+			local ldName="$4"
+			local cc="$5"
+			local cxx="$6"
+			local additionalGccConfigurationFlags="$7"
+	
+			pushd "$(libertine_public_sourcePath)"
+
+				_libertine_compile_musl_cross_make_catCommonStuff "$target" "$sysroot" "$cc" "$cxx" "$additionalGccConfigurationFlags"
+				
+				_libertine_compile_musl_cross_make_adjustPatchesToSupportFortifySource
+				
+				_libertine_compile_musl_cross_make_prepareSources
+	
+				_libertine_compile_musl_cross_make_makefileFixes
+	
+				libertine_public_ccache_createSymlinks
+				
+				ln -s byacc "$(libertine_public_PATH)"/yacc
+				ln -s reflex "$(libertine_public_PATH)"/flex
+		
+				ln -s ar "$(libertine_public_PATH)"/"$target"-ar
+				ln -s ranlib "$(libertine_public_PATH)"/"$target"-ranlib
+		
+				#export AM_DEFAULT_VERBOSITY=0
+				#export LD_RUN_PATH=
+	
+				libertine_public_make
+	
+				libertine_public_make install
+	
+				#unset AM_DEFAULT_VERBOSITY
+				#unset LD_RUN_PATH
+	
+				local effectiveSysroot="$sysroot"/usr
+	
+				# Remove cruft
+				rm "$effectiveSysroot"/"$target"/bin/ld.bfd "$effectiveSysroot"/bin/"$target"-ld.bfd
+				rm "$effectiveSysroot"/bin/"$target"-gcc-"$libertine_cmakeCompilerVersion"
+	
+				# Get rid of /usr/share; we'll end up copying it many, many times
+				rm -rf "$effectiveSysroot"/share
+	
+				# Get rid of .py files
+				find "$effectiveSysroot" -type f -name '*.py' | xargs -r rm -rf
+	
+				# Fix permissions of things
+				find "$effectiveSysroot" -type f -name '*.so' | xargs -r chmod 0644
+				find "$effectiveSysroot" -type f -name '*.so.*' | xargs -r chmod 0644
+				find "$effectiveSysroot" -type f -name '*.la' | xargs -r chmod 0644
+	
+				_libertine_compile_musl_cross_make_makeInstallAndLink_callback()
+				{
+					local gccExecutable="$1"
+		
+					# Some things, like 'ld', already exist in this folder as hardlinks; remove them before creating symlinks
+
+					rm -rf "$effectiveSysroot"/"$target"/bin/"$gccExecutable"
+					ln -s ../../bin/"$target"-"$gccExecutable" "$effectiveSysroot"/"$target"/bin/"$gccExecutable"
+				}
+				libertine_public_gccAndBinutilsExecutables _libertine_compile_musl_cross_make_makeInstallAndLink_callback
+	
+				_libertine_compile_musl_cross_make_makeInstallAndLink_strip()
+				{
+					# strip binaries and objects
+
+					_libertine_compile_musl_cross_make_makeInstallAndLink_strip_ifExtant()
+					{
+						local filePath="$1"
+			
+						if [ ! -e "$filePath" ]; then
+							return 0
+						fi
+			
+						if [ -s "$filePath" ]; then
+							"$stripper" "$filePath"
+						fi
+					}
+		
+					_libertine_compile_musl_cross_make_makeInstallAndLink_strip_ifExtant_gcc()
+					{
+						local gccExecutable="$1"
+						_libertine_compile_musl_cross_make_makeInstallAndLink_strip_ifExtant "$effectiveSysroot"/"$target"/bin/"$gccExecutable"
+					}
+	
+					local stripper="$effectiveSysroot"/"$target"/bin/strip.temp
+					cp "$effectiveSysroot"/"$target"/bin/strip "$stripper"
+					libertine_public_gccAndBinutilsExecutables _libertine_compile_musl_cross_make_makeInstallAndLink_strip_ifExtant_gcc
+
+					find "$effectiveSysroot" -name '*.so' -o -name '*.a' -o -name '*.o' | xargs -r "$stripper" --strip-debug
+		
+					pushd "$effectiveSysroot"/libexec/gcc/"$target"/"$libertine_cmakeCompilerVersion"
+		
+						_libertine_compile_musl_cross_make_makeInstallAndLink_strip_ifExtant install-tools/fixincl
+						_libertine_compile_musl_cross_make_makeInstallAndLink_strip_ifExtant cc1
+						_libertine_compile_musl_cross_make_makeInstallAndLink_strip_ifExtant cc1plus
+						_libertine_compile_musl_cross_make_makeInstallAndLink_strip_ifExtant collect2
+						_libertine_compile_musl_cross_make_makeInstallAndLink_strip_ifExtant lto-wrapper
+						_libertine_compile_musl_cross_make_makeInstallAndLink_strip_ifExtant lto1
+						_libertine_compile_musl_cross_make_makeInstallAndLink_strip_ifExtant plugin/gengtype
+			
+					popd
+		
+					rm "$stripper"
+				}
+				_libertine_compile_musl_cross_make_makeInstallAndLink_strip
+	
+				_libertine_compile_musl_cross_make_adjustHeaders()
+				{
+					local includeFolder="$effectiveSysroot"/include
+					local targetIncludeFolder="$effectiveSysroot"/"$target"/include
+		
+					rmdir "$includeFolder"
+					mv "$targetIncludeFolder" "$includeFolder"
+					ln -s ../include "$targetIncludeFolder"
+		
+					libertine_public_copy "$(libertine_public_packagePath)"/header-fixes/. "$includeFolder"/
+				}
+				_libertine_compile_musl_cross_make_adjustHeaders
+	
+				_libertine_compile_musl_cross_make_makeInstallAndLink_ldAndLibcSo()
+				{
+					mv "$effectiveSysroot"/"$target"/lib/libc.so "$effectiveSysroot"/lib/libc.so
+					ln -s ../lib/libc.so "$effectiveSysroot"/"$target"/lib/libc.so
+		
+					rm "$effectiveSysroot"/"$target"/lib/"$libertine_buildForMuslLd"
+					ln -s ../lib/"$libertine_buildForMuslLd" "$effectiveSysroot"/"$target"/lib/"$ldName"
+
+					ln -s libc.so "$effectiveSysroot"/lib/"$ldName"
+					ln -s ../lib/"$ldName" "$effectiveSysroot"/bin/ldd
+		
+					# Needed for harcoded path /lib/"$libertine_buildForMuslLd"
+					ln -s usr/lib "$sysroot"/lib
+		
+					chmod 0755 "$effectiveSysroot"/lib/libc.so
+				}
+				_libertine_compile_musl_cross_make_makeInstallAndLink_ldAndLibcSo
+		
+			popd
+		}
+
+		build_needs cat
+		_libertine_compile_musl_cross_make_catCommonStuff()
+		{
+			local target="$1"
+			local sysroot="$2"
+			local cc="$3"
+			local cxx="$4"
+			local additionalGccConfigurationFlags="$5"
+			
+			if [ -z "$additionalGccConfigurationFlags" ]; then
+				additionalGccConfigurationFlags=' '
+			fi
+			
+			{
+				cat <<EOF
+COMMON_CONFIG += CC="${cc}" CXX="${cxx}"
+
+TARGET = ${target}
+SOURCES = $(libertine_public_packagePath)/sources
+OUTPUT = ${sysroot}/usr
+
+MUSL_VER = version
+BINUTILS_VER = version
+GCC_VER = version
+GMP_VER = version
+MPC_VER = version
+MPFR_VER = version
+ISL_VER = version
+LINUX_VER = version
+
+# libitm in gcc 4.9 - 5.3 does not compile with fortify source; supposedly fixed in gcc 6; hence --disable-libitm
+GCC_CONFIG += --disable-libada --disable-libgcj --disable-libvtv --disable-libitm --disable-libmudflap --disable-libsanitizer --disable-lto --disable-multiarch --disable-shared --disable-host-shared${additionalGccConfigurationFlags}
+EOF
+	cat <<'EOF'
+# Fix makeinfo issues
+COMMON_CONFIG += MAKEINFO=false
+export AM_MAKEFLAGS = INFO_DEPS=
+
+# Libtool hacks
+export LIBTOOL = clibtool-static
+
+COMMON_CONFIG += --disable-nls
+COMMON_CONFIG += --with-debug-prefix-map=$(PWD)=
+COMMON_CONFIG += --sysconfdir=/etc --sharedstatedir=/com --localstatedir=/var
+COMMON_CONFIG += --disable-silent-rules
+EOF
+			} >config.mak
+		}
+
+
+		build_needs find rm sed
+		_libertine_compile_musl_cross_make_fixLibToolPostAutoreconf()
+		{
+			local folderPath="$1"
+	
+			find "$folderPath" -type f -name 'ltmain.sh' | while IFS= read -r filePath
+			do
+				rm "$filePath"
+			done
+	
+			case "$package" in
+		
+				build_*)
+					local envShaBang="$(libertine_public_PATH)"/env
+				;;
+		
+				*)
+					local envShaBang=/usr/bin/env
+				;;
+		
+			esac
+	
+			# Get rid of fscking hardcoded libtool
+			find "$folderPath" -type f -name 'configure' | while IFS= read -r filePath
+			do
+				# Get rid of ltmain.sh nonsense
+				sed -i -e 's/^LIBTOOL=.*$/LIBTOOL=clibtool-static/g' -e 's/^LIBTOOL_DEPS=.*$/LIBTOOL_DEPS=/g' -e 's/^ltmain=.*$/ltmain=NO_SUCH_LTMAIN/g' "$filePath"
+	
+				# Hack into the built-in ltmain.sh / libtool embedded in configure, FFS and make it re-route to clibtool-static
+				sed -i -e 's/^# Generated automatically/exec clibtool-static "$@"\n# Generated automatically/g' "$filePath"
+		
+				# Remove hardcoded use of /usr/bin/file and related commands from libtool.m4
+				sed -i \
+					-e 's;/usr/bin/file;file;g' \
+					-e 's;/bin/file;file;g' \
+					-e 's;/usr/bin/objformat;objformat;g' \
+					-e 's;for lt_ac_sed in \$lt_ac_sed_list /usr/xpg4/bin/sed;for lt_ac_sed in sed;g' \
+					-e 's;for ac_dir in \$PATH /usr/ccs/bin/elf /usr/ccs/bin /usr/ucb /bin;for ac_dir in $PATH;g' \
+					-e 's;/usr/bin\$PATH_SEPARATOR\$PATH;$PATH;g' \
+					-e 's;/usr/sbin/sysctl;sysctl;g' \
+					-e 's;/sbin/sysctl;sysctl;g' \
+					-e 's;/sbin/sysconfig;sysconfig;g' \
+					-e 's;\$PATH:/sbin;$PATH;g' \
+					"$filePath"
+		
+				# Remove hardcoded rubbish originally from autoconf .m4 files
+				sed -i \
+					-e 's,PATH='"'"'/bin;/bin'"'"',PATH="\$PATH",g' \
+					-e 's,PATH='"'"'/bin:/bin'"'"',PATH="$PATH",g' \
+					-e 's,for as_dir in /bin\$PATH_SEPARATOR/usr/bin\$PATH_SEPARATOR\$PATH,for as_dir in $PATH,g' \
+					-e 's,/usr/bin\$PATH_SEPARATOR\$PATH",$PATH,g' \
+					-e 's,/usr/bin/hostinfo,hostinfo,g' \
+					-e 's,/bin/uname,uname,g' \
+					-e 's,/bin/arch,arch,g' \
+					-e 's,/bin/machine,machine,g' \
+					-e 's,/bin/universe,universe,g' \
+					-e 's,/etc/\* | /usr/sbin/\* | /usr/etc/\* | /sbin/\* | /usr/afsws/bin/\* |,/usr/bin/* |,g' \
+					-e 's,for as_dir in \$PATH\$PATH_SEPARATOR/opt/sfw/bin,for as_dir in $PATH,g' \
+					-e 's,\$PATH\$PATH_SEPARATOR/usr/xpg4/bin,$PATH,g' \
+					-e 's,for ac_dir in \$PATH /usr/ccs/bin/elf /usr/ccs/bin /usr/ucb /bin,for ac_dir in $PATH,g' \
+					-e 's,#! /bin/sh,#!'"$envShaBang"' sh,g' \
+					"$filePath"
+		
+			done
+	
+			_libertine_compile_musl_cross_make_removeCruftThatTriesToReconfigure "$folderPath"
+		}
+
+		build_needs find sed
+		_libertine_compile_musl_cross_make_removeCruftThatTriesToReconfigure()
+		{
+			local folderPath="$1"
+	
+			# Inspired by last answer at https://stackoverflow.com/questions/33278928/how-to-overcome-aclocal-1-15-is-missing-on-your-system-warning-when-compilin
+			# Get rid of autoconf cruft that tries to reconfigure
+			find "$folderPath" -type f -name 'Makefile.in' | while IFS= read -r filePath
+			do
+				sed -i \
+					-e 's/ACLOCAL =.*$/ACLOCAL = true/g' \
+					-e 's/AUTOCONF =.*$/AUTOCONF = true/g' \
+					-e 's/AUTOHEADER =.*$/AUTOHEADER = true/g' \
+					-e 's/AUTOMAKE =.*$/AUTOMAKE = true/g' \
+					"$filePath"
+			done
+		}
+
+		case "$package" in
+	
+			build_musl_cross_make_build)
+		
+				build_needs cc gcc c++ g++ cpp ld as strip ar ranlib nm objcopy objdump
+		
+				build_provides "$libertine_build"-cc "$libertine_build"-gcc "$libertine_build"-c++ "$libertine_build"-g++ "$libertine_build"-cpp
+				build_provides "$libertine_build"-ld "$libertine_build"-as "$libertine_build"-strip
+				build_provides "$libertine_build"-ar "$libertine_build"-ranlib "$libertine_build"-nm
+				build_provides "$libertine_build"-gcc-ar "$libertine_build"-gcc-ranlib "$libertine_build"-gcc-nm
+				build_provides "$libertine_build"-objcopy "$libertine_build"-objdump
+				build_provides "$libertine_build"-readelf "$libertine_build"-elfedit
+				build_provides "$libertine_build"-addr2line "$libertine_build"-c++filt "$libertine_build"-gcov "$libertine_build"-gcov-tool "$libertine_build"-gprof "$libertine_build"-size "$libertine_build"-strings
+
+				libertine_compile_build_musl_cross_make_build()
+				{
+					_libertine_compile_musl_cross_make_makeInstallAndLink \
+						"$libertine_build" "$libertine_buildShorter" \
+						"$(libertine_public_outputBuildSysrootPath)" "$libertine_buildForMuslLd" \
+						"cc $libertine_buildCCompilerCreationCFlags" "c++ $libertine_buildCxxCompilerCreationCFlags" \
+						''
+				}
+			;;
+	
+			build_musl_cross_make_host)
+				
+				depends build_musl_cross_make_build
+				build_needs "$libertine_build"-cc "$libertine_build"-gcc "$libertine_build"-c++ "$libertine_build"-g++ "$libertine_build"-cpp
+				build_needs "$libertine_build"-ld "$libertine_build"-as "$libertine_build"-strip
+				build_needs "$libertine_build"-ar "$libertine_build"-ranlib "$libertine_build"-nm
+				build_needs "$libertine_build"-objcopy "$libertine_build"-objdump
+				build_needs gcc ar ranlib
+		
+				build_provides "$libertine_host"-cc "$libertine_host"-gcc "$libertine_host"-c++ "$libertine_host"-g++ "$libertine_host"-cpp
+				build_provides "$libertine_host"-ld "$libertine_host"-as "$libertine_host"-strip
+				build_provides "$libertine_host"-ar "$libertine_host"-ranlib "$libertine_host"-nm
+				build_provides "$libertine_host"-gcc-ar "$libertine_host"-gcc-ranlib "$libertine_host"-gcc-nm
+				build_provides "$libertine_host"-objcopy "$libertine_host"-objdump
+				build_provides "$libertine_host"-readelf "$libertine_host"-elfedit
+				build_provides "$libertine_host"-addr2line "$libertine_host"-c++filt "$libertine_host"-gcov "$libertine_host"-gcov-tool "$libertine_host"-gprof "$libertine_host"-size "$libertine_host"-strings
+				# build_provides cc gcc c++ g++ cpp
+				# build_provides ld as strip
+				# build_provides ar ranlib nm
+				# build_provides gcc-ar gcc-ranlib gcc-nm
+				# build_provides objcopy objdump
+				# build_provides readelf elfedit
+				# build_provides addr2line c++filt gcov gcov-tool gprof size strings
+		
+				libertine_compile_build_musl_cross_make_host()
+				{
+					if core_variable_isUnset libertine_build_musl_cross_make_host_gccConfigureFlags; then
+						libertine_build_musl_cross_make_host_gccConfigureFlags=''
+					fi
+					
+					_libertine_compile_musl_cross_make_makeInstallAndLink \
+						"$libertine_host" "$libertine_hostShorter" \
+						"$(libertine_public_outputBuildSysrootPath)" "$libertine_hostForMuslLd" \
+						"${libertine_build}-gcc $(libertine_public_buildCCompilerFlags)" "${libertine_build}-g++ $(libertine_public_buildCxxCompilerFlags)" \
+						"--enable-default-pie $libertine_build_musl_cross_make_host_gccConfigureFlags"
+				}
+			;;
+			
+		esac
+		
+	;;
+	
+	musl_cross_make)
+		
+		depends build_musl_cross_make_host
+		build_needs "$libertine_host"-strip
+		
+		build_needs mkdir cp chmod ln
+		libertine_compile_musl_cross_make()
+		{
+			mkdir -m 0755 -p "$(libertine_public_outputHostSysrootPath)"/usr/bin "$(libertine_public_outputHostSysrootPath)"/usr/lib
+	
+			cp "$(libertine_public_outputBuildSysrootPath build_musl_cross_make_host)"/usr/lib/libc.so "$(libertine_public_outputHostSysrootPath)"/usr/lib
+			"$libertine_host"-strip "$(libertine_public_outputHostSysrootPath)"/usr/lib/libc.so
+			chmod 0555 "$(libertine_public_outputHostSysrootPath)"/usr/lib/libc.so
+			ln -s libc.so "$(libertine_public_outputHostSysrootPath)"/usr/lib/"$libertine_hostForMuslLd"
+			ln -s ../lib/"$libertine_hostForMuslLd" "$(libertine_public_outputHostSysrootPath)"/usr/bin/ldd
+	
+			libertine_public_copy "$(libertine_public_outputHostSysrootPath)"/. "$(libertine_public_outputInitramfsPath)"/
+		}
+	;;
+	
+esac
