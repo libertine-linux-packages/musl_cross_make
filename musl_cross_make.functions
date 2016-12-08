@@ -4,10 +4,59 @@
 
 variant=upstream
 
-
 case "$package" in
 	
+	musl_cross_make)
+		
+		depends build_musl_cross_make_host
+		build_needs "$libertine_host"-strip
+		
+		build_needs mkdir cp chmod ln
+		libertine_compile_musl_cross_make()
+		{
+			mkdir -m 0755 -p "$(libertine_public_outputHostSysrootPath)"/usr/bin "$(libertine_public_outputHostSysrootPath)"/usr/lib
+	
+			cp "$(libertine_public_outputBuildSysrootPath build_musl_cross_make_host)"/usr/lib/libc.so "$(libertine_public_outputHostSysrootPath)"/usr/lib
+			"$libertine_host"-strip "$(libertine_public_outputHostSysrootPath)"/usr/lib/libc.so
+			chmod 0555 "$(libertine_public_outputHostSysrootPath)"/usr/lib/libc.so
+			ln -s libc.so "$(libertine_public_outputHostSysrootPath)"/usr/lib/"$libertine_hostForMuslLd"
+			ln -s ../lib/"$libertine_hostForMuslLd" "$(libertine_public_outputHostSysrootPath)"/usr/bin/ldd
+	
+			libertine_public_copy "$(libertine_public_outputHostSysrootPath)"/. "$(libertine_public_outputInitramfsPath)"/
+		}
+	;;
+	
 	build_musl_cross_make_*)
+		
+		supportGccPlugins=false
+		
+		local cExtraArgumentsStatic='-static --static -Wl,-Bstatic -static-libgcc'
+		local cxxExtraArgumentsStatic='-static --static -Wl,-Bstatic -static-libgcc -static-libstdc++'
+		
+		local cExtraArguments
+		local cxxExtraArguments
+		local gccConfigureArguments
+		local commonConfigureArguments
+		if $supportGccPlugins; then
+			libertine_public_libtool=clibtool-static
+			cExtraArguments="$cExtraArgumentsStatic"
+			cxxExtraArguments="$cxxExtraArgumentsStatic"
+			gccConfigureArguments='--disable-lto --disable-shared --disable-host-shared'
+			commonConfigureArguments=''
+		else
+			libertine_public_libtool=clibtool
+			cExtraArguments=''
+			cxxExtraArguments=''
+			gccConfigureArguments='--disable-shared --disable-host-shared'
+			gccConfigureArguments='--enable-plugin --enable-plugins'
+			commonConfigureArguments=''
+		fi
+		
+		# --enable-plugin
+		# --enable/disable-static/shared
+		
+		# Override EXTRA_GCC_LIBS in gcc/tarball/gcc/Makefile.in?
+		# Need to statically link in libraries to programs...
 		
 		depends build_fortify_headers
 		
@@ -57,9 +106,10 @@ case "$package" in
 		
 		depends build_gnum4
 		build_needs m4
-		
+				
 		depends build_slibtool
-		build_needs clibtool-static libtoolize realpath
+		build_needs "$libertine_public_libtool" libtoolize realpath
+		
 		
 		build_needs sed
 		_libertine_compile_musl_cross_make_adjustPatchesToSupportFortifySource()
@@ -69,7 +119,7 @@ case "$package" in
 				"$(libertine_public_sourcePath)"/../patch-versions/gcc/0001-musl.diff
 		}
 		
-		build_needs cat cp find xargs mv mkdir sed
+		build_needs cat cp find xargs mv mkdir sed tr
 		_libertine_compile_musl_cross_make_prepareSources()
 		{
 			local sourcePackage
@@ -77,17 +127,22 @@ case "$package" in
 			do
 				local sourcePackageFolderPath="$(libertine_public_sourcePath)"/"$sourcePackage"-version
 
-				mkdir -m 0755 -p "$(libertine_public_sourcePath)"/"$sourcePackage"
+				mkdir -m 0755 -p "$sourcePackageFolderPath"
 				
+				local sourceUncopied=true
 				local upstream
 				for upstream in upstream fork tarball
 				do
 					local folderPath="$(libertine_public_originalPackagePath build_musl_cross_make_"$sourcePackage")"/"$upstream"
 					if [ -d "$folderPath" ]; then
 						libertine_public_copy "$folderPath"/. "$sourcePackageFolderPath"/
+						sourceUncopied=false
 						break
 					fi
 				done
+				if $sourceUncopied; then
+					core_exitError 1 "Could not copy source from package '$sourcePackage'"
+				fi
 				
 				libertine_public_adjustShaBangAllFilesInPath "$sourcePackageFolderPath"
 				
@@ -106,7 +161,10 @@ case "$package" in
 					fi
 			
 					pushd "$sourcePackageFolderPath"
-						cat "$patchFile" | patch -p1 1>&2
+						
+						printf 'Applying patch %s to %s\n' "$patchFile" "$sourcePackage" 1>&2
+						patch -p1 -i "$patchFile" 1>&2
+						
 					popd
 		
 				done
@@ -116,7 +174,7 @@ case "$package" in
 				if [ "$sourcePackage" = 'musl' ]; then
 					# not quite right, but it is efficient
 					mkdir -m 0755 -p "$sourcePackageFolderPath"/include/fortify
-					libertine_public_copy "$(libertine_public_originalPackagePath fortify_headers)"/source/include/. "$sourcePackageFolderPath"/include/fortify/
+					libertine_public_copy "$(libertine_public_originalPackagePath fortify_headers)"/upstream/include/. "$sourcePackageFolderPath"/include/fortify/
 					
 					# Adjust musl make so it copies everything in include/fortify when installing
 					sed -i \
@@ -130,7 +188,7 @@ case "$package" in
 					sed -i \
 						-e 's;#include "sysinfo.h";#include <string.h>\n#include "sysinfo.h";g' \
 						"$sourcePackageFolderPath"/binutils/syslex.l
-					# "$sourcePackageFolderPath"/binutils/arlex.l should not need to be changed (now that we patch reflex)
+						# "$sourcePackageFolderPath"/binutils/arlex.l should not need to be changed
 					
 				fi
 				
@@ -156,6 +214,28 @@ case "$package" in
 				
 						sed "$@" "$sourcePackageFolderPath"/Makefile.in
 					;;
+					
+					gcc)
+						
+						# gcc can't statically link dependencies into cc1, etc
+						sed -i -e '/\$(ZLIB)/d' -e 's/^BACKENDLIBS = .*/BACKENDLIBS = -Wl,-Bstatic $(ISLLIBS) $(GMPLIBS) $(HOST_LIBS) $(ZLIB) -Wl,-Bdynamic $(PLUGINLIBS)/g' "$sourcePackageFolderPath"/gcc/Makefile.in
+						
+					;;
+					
+					# binutils)
+					#
+					# 	sed -i \
+					# 		-e 's;^CFLAGS = .*;CFLAGS = '"$(_libertine_compile_build_musl_cross_make_cCompiler) ${cExtraArgumentsStatic}"';g' \
+					# 		-e 's;^CXXFLAGS = .*;CXXFLAGS = '"$(_libertine_compile_build_musl_cross_make_cxxCompiler) ${cxxExtraArgumentsStatic}"';g' \
+					# 		-e 's;\$(BFDLIB); -L../bfd/.libs -lbfd;g' \
+					# 		"$sourcePackageFolderPath"/binutils/Makefile.in \
+					# 		"$sourcePackageFolderPath"/bfd/Makefile.in \
+					# 		"$sourcePackageFolderPath"/gas/Makefile.in \
+					# 		"$sourcePackageFolderPath"/gold/Makefile.in \
+					# 		"$sourcePackageFolderPath"/gprof/Makefile.in \
+					# 		"$sourcePackageFolderPath"/ld/Makefile.in \
+					# 		"$sourcePackageFolderPath"/Makefile.in
+					# ;;
 			
 				esac
 				
@@ -191,7 +271,7 @@ case "$package" in
 					;;
 					
 				esac
-				
+												
 				# Fix configure
 				set --
 				case "$sourcePackage" in
@@ -221,6 +301,9 @@ case "$package" in
 						"$sourcePackageFolderPath"/"$configureFile"
 				done
 			done
+			
+			# Make gcc-version.sh (part of grsecurity) verbose
+			sed -i -e 's;#!/bin/sh;#!/usr/bin/env sh\nset -x\n;g' linux-version/scripts/gcc-plugin.sh
 		}
 
 		build_needs sed
@@ -229,19 +312,23 @@ case "$package" in
 			# Stop make from recreating extracted sources
 			sed -i -e 's/extract_all: | \$(SRC_DIRS)/extract_all:/g' "$(libertine_public_sourcePath)"/Makefile
 	
-			# Fix LC_ROOT issue and other problems: http://www.openwall.com/lists/musl/2016/05/01/3; ISL_SRCDIR fix is our own discovery
+			# Fix: http://www.openwall.com/lists/musl/2016/05/01/3; ISL_SRCDIR fix is our own discovery
 			# Fix MAKE += ac_cv_prog_lex_root=lex.yy.c - causes problems
 			sed -i \
-				-e 's/\$\$(LC_ROOT)/$${LC_ROOT}/g' \
 				-e 's/"\$(GMP_SRCDIR)"/$(GMP_SRCDIR)/g' \
 				-e 's/"\$(MPC_SRCDIR)"/$(MPC_SRCDIR)/g' \
 				-e 's/"\$(MPFR_SRCDIR)"/$(MPFR_SRCDIR)/g' \
 				-e 's/"\$(ISL_SRCDIR)"/$(ISL_SRCDIR)/g' \
 				-e 's/ac_cv_prog_lex_root=lex.yy.c/ac_cv_prog_lex_root=lex.yy/g' \
 				litecross/Makefile
+			
+			# Force fully-static for binutils
+			# sed -i \
+			# 	-e 's;cd obj_toolchain && \.\./src_toolchain/configure \$(FULL_TOOLCHAIN_CONFIG);cd obj_toolchain && ../src_toolchain/configure $(FULL_TOOLCHAIN_CONFIG)\n\tcd obj_toolchain && ../src_toolchain/configure $(FULL_TOOLCHAIN_CONFIG) '""';g' \
+			# 		xxxxx
 		}
 
-		build_needs rm ln rmdir cp mkdir chmod find xargs
+		build_needs rm ln rmdir cp mkdir chmod find xargs sed
 		_libertine_compile_musl_cross_make_makeInstallAndLink()
 		{
 			local target="$1"
@@ -272,11 +359,11 @@ case "$package" in
 		
 				#export AM_DEFAULT_VERBOSITY=0
 				#export LD_RUN_PATH=
-	
-				libertine_public_make
-	
-				libertine_public_make install
-	
+				
+				# musl-cross-make's litecross calls linux's make header_install; the nature of the integration of grsecurity then tries to build, finds fixdeps hasn't been created and explodes
+				libertine_public_make DISABLE_PAX_PLUGINS=y
+				libertine_public_make DISABLE_PAX_PLUGINS=y install
+								
 				#unset AM_DEFAULT_VERBOSITY
 				#unset LD_RUN_PATH
 	
@@ -387,56 +474,6 @@ case "$package" in
 			popd
 		}
 
-		build_needs cat
-		_libertine_compile_musl_cross_make_catCommonStuff()
-		{
-			local target="$1"
-			local sysroot="$2"
-			local cc="$3"
-			local cxx="$4"
-			local additionalGccConfigurationFlags="$5"
-			
-			if [ -z "$additionalGccConfigurationFlags" ]; then
-				additionalGccConfigurationFlags=' '
-			fi
-			
-			{
-				cat <<EOF
-COMMON_CONFIG += CC="${cc}" CXX="${cxx}"
-
-TARGET = ${target}
-SOURCES = $(libertine_public_packagePath)/sources
-OUTPUT = ${sysroot}/usr
-
-MUSL_VER = version
-BINUTILS_VER = version
-GCC_VER = version
-GMP_VER = version
-MPC_VER = version
-MPFR_VER = version
-ISL_VER = version
-LINUX_VER = version
-
-# libitm in gcc 4.9 - 5.3 does not compile with fortify source; supposedly fixed in gcc 6; hence --disable-libitm
-GCC_CONFIG += --disable-libada --disable-libgcj --disable-libvtv --disable-libitm --disable-libmudflap --disable-libsanitizer --disable-lto --disable-multiarch --disable-shared --disable-host-shared${additionalGccConfigurationFlags}
-EOF
-	cat <<'EOF'
-# Fix makeinfo issues
-COMMON_CONFIG += MAKEINFO=false
-export AM_MAKEFLAGS = INFO_DEPS=
-
-# Libtool hacks
-export LIBTOOL = clibtool-static
-
-COMMON_CONFIG += --disable-nls
-COMMON_CONFIG += --with-debug-prefix-map=$(PWD)=
-COMMON_CONFIG += --sysconfdir=/etc --sharedstatedir=/com --localstatedir=/var
-COMMON_CONFIG += --disable-silent-rules
-EOF
-			} >config.mak
-		}
-
-
 		build_needs find rm sed
 		_libertine_compile_musl_cross_make_fixLibToolPostAutoreconf()
 		{
@@ -463,10 +500,10 @@ EOF
 			find "$folderPath" -type f -name 'configure' | while IFS= read -r filePath
 			do
 				# Get rid of ltmain.sh nonsense
-				sed -i -e 's/^LIBTOOL=.*$/LIBTOOL=clibtool-static/g' -e 's/^LIBTOOL_DEPS=.*$/LIBTOOL_DEPS=/g' -e 's/^ltmain=.*$/ltmain=NO_SUCH_LTMAIN/g' "$filePath"
+				sed -i -e 's/^LIBTOOL=.*$/LIBTOOL='"$libertine_public_libtool"'/g' -e 's/^LIBTOOL_DEPS=.*$/LIBTOOL_DEPS=/g' -e 's/^ltmain=.*$/ltmain=NO_SUCH_LTMAIN/g' "$filePath"
 	
-				# Hack into the built-in ltmain.sh / libtool embedded in configure, FFS and make it re-route to clibtool-static
-				sed -i -e 's/^# Generated automatically/exec clibtool-static "$@"\n# Generated automatically/g' "$filePath"
+				# Hack into the built-in ltmain.sh / libtool embedded in configure, FFS and make it re-route to $libertine_public_libtool
+				sed -i -e 's/^# Generated automatically/exec '"$libertine_public_libtool"' "$@"\n# Generated automatically/g' "$filePath"
 		
 				# Remove hardcoded use of /usr/bin/file and related commands from libtool.m4
 				sed -i \
@@ -522,7 +559,101 @@ EOF
 					"$filePath"
 			done
 		}
+		
+		build_needs cat
+		_libertine_compile_musl_cross_make_catCommonStuff()
+		{
+			local target="$1"
+			local sysroot="$2"
+			local cc="$3"
+			local cxx="$4"
+			local additionalGccConfigurationFlags="$5"
+			
+			if [ -z "$additionalGccConfigurationFlags" ]; then
+				additionalGccConfigurationFlags=' '
+			fi
+			
+			{
+				cat <<EOF
+COMMON_CONFIG += CC="${cc}" CXX="${cxx}"
+COMMON_CONFIG += --disable-nls ${commonConfigureArguments}
 
+TARGET = ${target}
+SOURCES = $(libertine_public_packagePath)/sources
+OUTPUT = ${sysroot}/usr
+
+MUSL_VER = version
+BINUTILS_VER = version
+GCC_VER = version
+GMP_VER = version
+MPC_VER = version
+MPFR_VER = version
+ISL_VER = version
+LINUX_VER = version
+
+# --disable-libquadmath --disable-decimal-float --disable-libquadmath-support
+# --enable-plugin
+GCC_CONFIG += --disable-libada --disable-libgcj --disable-libvtv --disable-vtable-verify --disable-multiarch ${additionalGccConfigurationFlags}
+
+# Libtool hacks
+export LIBTOOL = ${libertine_public_libtool}
+
+EOF
+	cat <<'EOF'
+# Hack for configuring binutils separately from gcc
+BINUTILS_FULL_TOOLCHAIN_CONFIG = --enable-languages=c,c++ \
+	$(GCC_CONFIG_FOR_TARGET) \
+	$(COMMON_CONFIG) $(GCC_CONFIG) $(TOOLCHAIN_CONFIG) \
+	--disable-werror \
+	--target=$(TARGET) --prefix= \
+	--libdir=/lib --disable-multilib \
+	--with-sysroot=$(SYSROOT) \
+	--with-build-sysroot=$(PWD)/obj_sysroot \
+	--enable-tls \
+	--disable-libmudflap --disable-libsanitizer \
+	--disable-gnu-indirect-function \
+	--disable-libmpx \
+	--enable-libstdcxx-time
+
+
+
+
+
+
+
+
+
+
+REWORK so that cc isn't and everything is static with a few exceptions. get rid of compiler flags files for all intents and purposes....
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+# Fix makeinfo issues
+COMMON_CONFIG += MAKEINFO=false
+export AM_MAKEFLAGS = INFO_DEPS=
+
+COMMON_CONFIG += --with-debug-prefix-map=$(PWD)=
+COMMON_CONFIG += --sysconfdir=/etc --sharedstatedir=/com --localstatedir=/var
+COMMON_CONFIG += --disable-silent-rules
+EOF
+			} >config.mak
+		}
+		
 		case "$package" in
 	
 			build_musl_cross_make_build)
@@ -536,14 +667,27 @@ EOF
 				build_provides "$libertine_build"-objcopy "$libertine_build"-objdump
 				build_provides "$libertine_build"-readelf "$libertine_build"-elfedit
 				build_provides "$libertine_build"-addr2line "$libertine_build"-c++filt "$libertine_build"-gcov "$libertine_build"-gcov-tool "$libertine_build"-gprof "$libertine_build"-size "$libertine_build"-strings
-
+				
 				libertine_compile_build_musl_cross_make_build()
 				{
+					# libitm in gcc 4.9 - 5.3 does not compile with fortify source; supposedly fixed in gcc 6; hence --disable-libitm
 					_libertine_compile_musl_cross_make_makeInstallAndLink \
 						"$libertine_build" "$libertine_buildShorter" \
-						"$(libertine_public_outputBuildSysrootPath)" "$libertine_buildForMuslLd" \
-						"cc $libertine_buildCCompilerCreationCFlags" "c++ $libertine_buildCxxCompilerCreationCFlags" \
-						''
+						"$(libertine_public_outputBuildSysrootPath)" \
+						"$libertine_buildForMuslLd" \
+						"$(_libertine_compile_build_musl_cross_make_cCompiler) $cExtraArguments" \
+						"$(_libertine_compile_build_musl_cross_make_cxxCompiler) $cxxExtraArguments" \
+						"--disable-libitm ${gccConfigureArguments}"
+				}
+				
+				_libertine_compile_build_musl_cross_make_cCompiler()
+				{
+					printf 'cc %s' "$libertine_buildCCompilerCreationCFlags"
+				}
+				
+				_libertine_compile_build_musl_cross_make_cxxCompiler()
+				{
+					printf 'c++ %s' "$libertine_buildCxxCompilerCreationCFlags"
 				}
 			;;
 	
@@ -554,7 +698,7 @@ EOF
 				build_needs "$libertine_build"-ld "$libertine_build"-as "$libertine_build"-strip
 				build_needs "$libertine_build"-ar "$libertine_build"-ranlib "$libertine_build"-nm
 				build_needs "$libertine_build"-objcopy "$libertine_build"-objdump
-				build_needs gcc ar ranlib
+				build_needs gcc g++ ar ranlib
 		
 				build_provides "$libertine_host"-cc "$libertine_host"-gcc "$libertine_host"-c++ "$libertine_host"-g++ "$libertine_host"-cpp
 				build_provides "$libertine_host"-ld "$libertine_host"-as "$libertine_host"-strip
@@ -563,13 +707,6 @@ EOF
 				build_provides "$libertine_host"-objcopy "$libertine_host"-objdump
 				build_provides "$libertine_host"-readelf "$libertine_host"-elfedit
 				build_provides "$libertine_host"-addr2line "$libertine_host"-c++filt "$libertine_host"-gcov "$libertine_host"-gcov-tool "$libertine_host"-gprof "$libertine_host"-size "$libertine_host"-strings
-				# build_provides cc gcc c++ g++ cpp
-				# build_provides ld as strip
-				# build_provides ar ranlib nm
-				# build_provides gcc-ar gcc-ranlib gcc-nm
-				# build_provides objcopy objdump
-				# build_provides readelf elfedit
-				# build_provides addr2line c++filt gcov gcov-tool gprof size strings
 		
 				libertine_compile_build_musl_cross_make_host()
 				{
@@ -577,36 +714,29 @@ EOF
 						libertine_build_musl_cross_make_host_gccConfigureFlags=''
 					fi
 					
+					# libitm in gcc 4.9 - 5.3 does not compile with fortify source; supposedly fixed in gcc 6; hence --disable-libitm
 					_libertine_compile_musl_cross_make_makeInstallAndLink \
 						"$libertine_host" "$libertine_hostShorter" \
-						"$(libertine_public_outputBuildSysrootPath)" "$libertine_hostForMuslLd" \
-						"${libertine_build}-gcc $(libertine_public_buildCCompilerFlags)" "${libertine_build}-g++ $(libertine_public_buildCxxCompilerFlags)" \
-						"--enable-default-pie $libertine_build_musl_cross_make_host_gccConfigureFlags"
+						"$(libertine_public_outputBuildSysrootPath)" \
+						"$libertine_hostForMuslLd" \
+						"$(_libertine_compile_build_musl_cross_make_cCompiler) ${cExtraArguments}" \
+						"$(_libertine_compile_build_musl_cross_make_cxxCompiler) ${cxxExtraArguments}" \
+						"--disable-libitm$ ${gccConfigureArguments} --enable-default-pie ${libertine_build_musl_cross_make_host_gccConfigureFlags}"
+				}
+				
+				_libertine_compile_build_musl_cross_make_cCompiler()
+				{
+					printf '%s %s' "${libertine_build}-gcc" "$(libertine_public_buildCCompilerFlags)"
+				}
+				
+				_libertine_compile_build_musl_cross_make_cxxCompiler()
+				{
+					printf '%s %s' "${libertine_build}-g++" "$(libertine_public_buildCxxCompilerFlags)"
 				}
 			;;
 			
 		esac
 		
-	;;
-	
-	musl_cross_make)
-		
-		depends build_musl_cross_make_host
-		build_needs "$libertine_host"-strip
-		
-		build_needs mkdir cp chmod ln
-		libertine_compile_musl_cross_make()
-		{
-			mkdir -m 0755 -p "$(libertine_public_outputHostSysrootPath)"/usr/bin "$(libertine_public_outputHostSysrootPath)"/usr/lib
-	
-			cp "$(libertine_public_outputBuildSysrootPath build_musl_cross_make_host)"/usr/lib/libc.so "$(libertine_public_outputHostSysrootPath)"/usr/lib
-			"$libertine_host"-strip "$(libertine_public_outputHostSysrootPath)"/usr/lib/libc.so
-			chmod 0555 "$(libertine_public_outputHostSysrootPath)"/usr/lib/libc.so
-			ln -s libc.so "$(libertine_public_outputHostSysrootPath)"/usr/lib/"$libertine_hostForMuslLd"
-			ln -s ../lib/"$libertine_hostForMuslLd" "$(libertine_public_outputHostSysrootPath)"/usr/bin/ldd
-	
-			libertine_public_copy "$(libertine_public_outputHostSysrootPath)"/. "$(libertine_public_outputInitramfsPath)"/
-		}
 	;;
 	
 esac
