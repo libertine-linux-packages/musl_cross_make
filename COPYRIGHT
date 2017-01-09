@@ -75,3 +75,8 @@ License: BSD
  LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY
  OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF
  SUCH DAMAGE.
+
+Files: patches-from-alpine-linux-aports/*
+Copyright: The Developers of Alpine Linux and Others (DP, Martin von Gagern, Magnus Granberg  <zorry@ume.nu>, Khem Raj <raj.khem@gmail.com>, Mark Hatle <mark.hatle@windriver.com>, Timo Teräs <timo.teras@iki.fi>, Rob Landley)
+License: Uncertain
+ Either Public Domain or GPL2/3. Contributions fall below the threshold for fair use.

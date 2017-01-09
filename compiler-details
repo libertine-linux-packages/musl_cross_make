@@ -4,6 +4,6 @@
 
 # These details exist because of the tight coupling with musl-cross-make
 libertine_cmakeCompilerId='GNU'
-libertine_cmakeCompilerVersion='5.3.0'
+libertine_cmakeCompilerVersion='6.2.0'
 libertine_cCompilerName=gcc
 libertine_cxxCompilerName=g++

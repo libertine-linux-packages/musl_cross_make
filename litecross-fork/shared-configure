@@ -1,0 +1,41 @@
+# This file is part of libertine linux's package musl_cross_make. It is subject to the license terms in the COPYRIGHT file found in the top-level directory of this distribution and at https://raw.githubusercontent.com/libertine-linux-packages/musl_cross_make/master/COPYRIGHT. No part of libertine linux's package musl_cross_make, including this file, may be copied, modified, propagated, or distributed except according to the terms contained in the COPYRIGHT file.
+# Copyright © 2016 The developers of libertine linux's package musl_cross_make. See the COPYRIGHT file in the top-level directory of this distribution and at https://raw.githubusercontent.com/libertine-linux-packages/musl_cross_make/master/COPYRIGHT.
+
+
+{
+	printf '\n\n\nEnvironment Vars\n\n'
+	env
+	
+	printf '\n\n\nOur Name\n\n'
+	printf '%s\n' "$0"
+	
+	printf '\n\n\nCommand Line\n\n'
+	printf '%s\n' "$@"
+	
+	printf '\n\n\nPWD\n\n'
+	pwd
+} 1>&2
+
+# Override cruft passed down to us - relies on 'overide XXX', eg 'overide LIBTOOL', in makefile arguments
+export LIBTOOL='clibtool'
+export CC="$(printf '%s' "$CC" | sed -e 's/-static --static -Wl,-Bstatic //g')"
+export CXX="$(printf '%s' "$CXX" | sed -e 's/-static --static -Wl,-Bstatic //g' | sed -e 's/ -static-libstdc++//g')"
+export CPP="$(printf '%s' "$CPP" | sed -e 's/-static --static -Wl,-Bstatic //g')"
+export CXXCPP="$(printf '%s' "$CXXCPP" | sed -e 's/-static --static -Wl,-Bstatic //g' | sed -e 's/ -static-libstdc++//g')"
+
+# Override this too
+export TOPLEVEL_CONFIGURE_ARGUMENTS="$(printf '%s' "$TOPLEVEL_CONFIGURE_ARGUMENTS" | sed -e 's/-static --static -Wl,-Bstatic //g' | sed -e 's/ -static-libstdc++//g')"
+
+{
+	printf '\n\n\n\n\n'
+	printf 'Our Name\n'
+	printf '%s\n\n' "$0"
+	printf 'Our Revised Environment Vars\n'
+	env
+	printf '\n'
+	printf 'Our Arguments\n'
+	printf '%s\n' "$@"
+	printf '\n\n\n'
+} 1>&2
+
+exec "$0".orig "$@"
