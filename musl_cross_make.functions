@@ -528,7 +528,7 @@ case "$package" in
 					core_exitError 1 "Could not copy source from package '$sourcePackage'"
 				fi
 				
-				libertine_public_adjustShaBangAllFilesInPath "$sourcePackageFolderPath"
+				libertine_public_adjustShaBangAllExecutableFilesInPath "$sourcePackageFolderPath"
 				
 				# Apply patches to sources from Alpine Linux and musl-cross-make
 				local patchFile

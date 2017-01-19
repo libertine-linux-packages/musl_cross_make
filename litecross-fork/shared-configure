@@ -38,4 +38,9 @@ export TOPLEVEL_CONFIGURE_ARGUMENTS="$(printf '%s' "$TOPLEVEL_CONFIGURE_ARGUMENT
 	printf '\n\n\n'
 } 1>&2
 
-exec "$0".orig "$@"
+"$0".orig "$@"
+
+# For some insane reasons, the HAVE_DECL_BASENAME test is broken in the 'gcc' module
+if [ -f auto-host.h ]; then
+	sed -i -e 's/#define HAVE_DECL_BASENAME 0/#define HAVE_DECL_BASENAME 1/g' auto-host.h
+fi
