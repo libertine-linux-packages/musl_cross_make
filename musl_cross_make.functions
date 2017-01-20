@@ -530,33 +530,45 @@ case "$package" in
 				
 				libertine_public_adjustShaBangAllExecutableFilesInPath "$sourcePackageFolderPath"
 				
-				# Apply patches to sources from Alpine Linux and musl-cross-make
-				local patchFile
-				set +f
-				for patchFile in \
-					"$(libertine_public_originalPackagePath)"/patches-from-alpine-linux-aports/before-musl-cross-make-patches/"$sourcePackage"/* \
-					"$(libertine_public_originalPackagePath)"/patches-from-musl-cross-make/"$sourcePackage"/* \
-					"$(libertine_public_originalPackagePath)"/patches-from-alpine-linux-aports/after-musl-cross-make-patches/"$sourcePackage"/*
-				do
-					set -f
+				
+				case "$sourcePackage" in
+				
+					# Apply linux specific patches using apply-patches
+					linux)
+						"$(libertine_public_originalPackagePath build_musl_cross_make_linux)"/linux-patches/apply-patches "$sourcePackageFolderPath"
+					;;
+
+					# Apply patches to sources from Alpine Linux and musl-cross-make
+					*)
+						local patchFile
+						set +f
+						for patchFile in \
+							"$(libertine_public_originalPackagePath)"/patches-from-alpine-linux-aports/before-musl-cross-make-patches/"$sourcePackage"/* \
+							"$(libertine_public_originalPackagePath)"/patches-from-musl-cross-make/"$sourcePackage"/* \
+							"$(libertine_public_originalPackagePath)"/patches-from-alpine-linux-aports/after-musl-cross-make-patches/"$sourcePackage"/*
+						do
+							set -f
 			
-					if [ ! -e "$patchFile" ]; then
-						continue
-					fi
+							if [ ! -e "$patchFile" ]; then
+								continue
+							fi
 			
-					if [ ! -s "$patchFile" ]; then
-						continue
-					fi
+							if [ ! -s "$patchFile" ]; then
+								continue
+							fi
 			
-					pushd "$sourcePackageFolderPath"
+							pushd "$sourcePackageFolderPath"
 						
-						printf 'Applying patch %s to %s\n' "$patchFile" "$sourcePackage" 1>&2
-						patch -p1 -i "$patchFile" 1>&2
+								printf 'Applying patch %s to %s\n' "$patchFile" "$sourcePackage" 1>&2
+								patch -p1 -i "$patchFile" 1>&2
 						
-					popd
+							popd
 		
-				done
-				set -f
+						done
+						set -f
+					;;
+					
+				esac
 				
 				# harden sources using fortify_headers
 				case "$sourcePackage" in
