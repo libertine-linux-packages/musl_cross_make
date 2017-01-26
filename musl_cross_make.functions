@@ -11,13 +11,16 @@ case "$package" in
 		depends build_musl_cross_make_host
 		build_needs "$libertine_host"-strip
 		
+		depends build_paxctl
+		build_needs paxctl
+				
 		build_needs mkdir cp chmod ln
 		libertine_compile_musl_cross_make()
 		{
 			mkdir -m 0755 -p "$(libertine_public_outputHostSysrootPath)"/usr/bin "$(libertine_public_outputHostSysrootPath)"/usr/lib
 	
 			cp "$(libertine_public_outputBuildSysrootPath build_musl_cross_make_host)"/usr/lib/libc.so "$(libertine_public_outputHostSysrootPath)"/usr/lib
-			"$libertine_host"-strip "$(libertine_public_outputHostSysrootPath)"/usr/lib/libc.so
+			libertine_public_stripAndSecureBinary "$(libertine_public_outputHostSysrootPath)"/usr/lib/libc.so
 			chmod 0555 "$(libertine_public_outputHostSysrootPath)"/usr/lib/libc.so
 			ln -s libc.so "$(libertine_public_outputHostSysrootPath)"/usr/lib/"$libertine_hostForMuslLd"
 			ln -s ../lib/"$libertine_hostForMuslLd" "$(libertine_public_outputHostSysrootPath)"/usr/bin/ldd
