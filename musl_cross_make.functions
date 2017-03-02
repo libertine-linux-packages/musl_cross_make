@@ -31,7 +31,7 @@ case "$package" in
 	
 	build_musl_cross_make_*)
 	
-		copy_subset="$variant/patches header-fixes litecross-fork patches-from-musl-cross-make patches-from-alpine-linux-aports"
+		copy_subset="$variant/patches header-fixes litecross-fork patches-from-musl-cross-make patches-from-us patches-from-alpine-linux-aports"
 		
 		depends build_fortify_headers
 		
@@ -548,6 +548,7 @@ case "$package" in
 						for patchFile in \
 							"$(libertine_public_originalPackagePath)"/patches-from-alpine-linux-aports/before-musl-cross-make-patches/"$sourcePackage"/* \
 							"$(libertine_public_originalPackagePath)"/patches-from-musl-cross-make/"$sourcePackage"/* \
+							"$(libertine_public_originalPackagePath)"/patches-from-us/"$sourcePackage"/* \
 							"$(libertine_public_originalPackagePath)"/patches-from-alpine-linux-aports/after-musl-cross-make-patches/"$sourcePackage"/*
 						do
 							set -f
