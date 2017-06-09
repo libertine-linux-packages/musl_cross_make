@@ -82,7 +82,8 @@ TOOLCHAIN_CONFIG = \
 	--disable-libsanitizer \
 	--disable-gnu-indirect-function \
 	--disable-libmpx \
-	--enable-libstdcxx-time
+	--enable-libstdcxx-time \
+	--enable-deterministic-archives
 
 # --enable-plugins if using lto
 # --enable-ld=default --enable-gold
