@@ -44,6 +44,7 @@ case "$package" in
 		depends build_musl_cross_make_linux
 		
 		depends build_busybox
+		depends build_netbsd_src_sleep
 		build_needs diff cat mv cp rm grep egrep uniq rmdir od tail cut env chmod tr head cut realpath touch expr sort basename dirname cmp true echo install sleep uname ls # Used in configure
 		build_needs getconf # Used in configure; only present in our patched getconf
 		build_needs date tar # Why ?
@@ -351,7 +352,7 @@ case "$package" in
 		
 					rm "$stripper"
 				}
-				_libertine_compile_musl_cross_make_strip
+				#_libertine_compile_musl_cross_make_strip
 	
 				_libertine_compile_musl_cross_make_adjustHeaders()
 				{
