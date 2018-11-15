@@ -1,3 +1,12 @@
 [submodule "upstream"]
 	path = upstream
 	url = https://github.com/richfelker/musl-cross-make.git
+[submodule "musl-fts"]
+	path = musl-fts
+	url = https://github.com/void-linux/musl-fts
+[submodule "musl-obstack"]
+	path = musl-obstack
+	url = https://github.com/void-linux/musl-obstack
+[submodule "musl-rpmatch"]
+	path = musl-rpmatch
+	url = https://github.com/pullmoll/musl-rpmatch

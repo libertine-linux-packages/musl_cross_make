@@ -31,7 +31,7 @@ case "$package" in
 	
 	build_musl_cross_make_*)
 	
-		copy_subset="$variant/patches header-fixes litecross-fork patches-from-musl-cross-make patches-from-us patches-from-alpine-linux-aports"
+		copy_subset="$variant/patches header-fixes litecross-fork patches-from-musl-cross-make patches-from-us patches-from-alpine-linux-aports musl-fts musl-obstack musl-rpmatch"
 		
 		depends build_fortify_headers
 		
@@ -586,6 +586,93 @@ case "$package" in
 						sed -i \
 							-e 's,INCLUDES = \$(wildcard \$(srcdir)/include/\*.h \$(srcdir)/include/\*/\*.h),INCLUDES = $(wildcard $(srcdir)/include/*.h $(srcdir)/include/*/*.h $(srcdir)/include/*/*/*.h),g' \
 							"$sourcePackageFolderPath"/Makefile
+					;;
+					
+				esac
+				
+				# Add fts to musl
+				case "$sourcePackage" in
+					
+					musl)
+						
+						{
+							cat <<-EOF
+								#ifndef HAVE_DECL_MAX
+								#define HAVE_DECL_MAX 1
+								#endif
+
+								#ifndef HAVE_DECL_UINTMAX_MAX
+								#define HAVE_DECL_UINTMAX_MAX 1
+								#endif
+
+								#ifndef HAVE_DIRFD
+								#define HAVE_DIRFD 1
+								#endif
+							EOF
+							sed \
+								-e '/#include "config.h"/d' \
+								-e '/_DIAGASSERT/d' \
+								-e '/LIBC_SCCS/d' \
+								-e '/__RCSID/d' \
+								"$(libertine_public_originalPackagePath)"/musl-fts/fts.c
+						} >"$sourcePackageFolderPath"/src/legacy/fts.c
+						
+						cp "$(libertine_public_originalPackagePath)"/musl-fts/fts.h "$sourcePackageFolderPath"/include
+						
+					;;
+					
+				esac
+				
+				# Add obstack to musl
+				case "$sourcePackage" in
+					
+					musl)
+						
+						{
+							printf '#include <stdlib.h>\n'
+							sed -e '/#include "config.h"/d' "$(libertine_public_originalPackagePath)"/musl-obstack/obstack.c
+						} >"$sourcePackageFolderPath"/src/legacy/obstack.c
+						
+						cp "$(libertine_public_originalPackagePath)"/musl-obstack/obstack.h "$sourcePackageFolderPath"/include
+					;;
+					
+				esac
+				
+				# Add rpmatch to musl
+				case "$sourcePackage" in
+					
+					musl)
+						
+						{
+							cat <<-EOF
+								#ifndef HAVE_STDIO_H
+								#define HAVE_STDIO_H 1
+								#endif
+
+								#ifndef HAVE_STDLIB_H
+								#define HAVE_STDLIB_H 1
+								#endif
+
+								#ifndef HAVE_STRING_H
+								#define HAVE_STRING_H 1
+								#endif
+
+								#ifndef HAVE_REGEX_H
+								#define HAVE_REGEX_H 1
+								#endif
+
+								#ifndef HAVE_LIBINTL_H
+								#define HAVE_LIBINTL_H 1
+								#endif
+
+								#ifndef HAVE_LOCALE_H
+								#define HAVE_LOCALE_H 1
+								#endif
+							EOF
+							sed -e '/#include "config.h"/d' "$(libertine_public_originalPackagePath)"/musl-rpmatch/rpmatch.c
+						} >"$sourcePackageFolderPath"/src/legacy/rpmatch.c
+						
+						cp "$(libertine_public_originalPackagePath)"/musl-rpmatch/rpmatch.h "$sourcePackageFolderPath"/include
 					;;
 					
 				esac
