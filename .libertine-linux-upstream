@@ -1,0 +1,4 @@
+upstream	https://github.com/richfelker/musl-cross-make.git
+musl-fts	https://github.com/void-linux/musl-fts
+musl-obstack	https://github.com/void-linux/musl-obstack
+musl-rpmatch	https://github.com/pullmoll/musl-rpmatch
