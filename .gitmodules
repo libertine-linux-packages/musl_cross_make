@@ -5,7 +5,7 @@
 	update = checkout
 	ignore = none
 	fetchRecurseSubmodules = true
-	shallow = true
+	shallow = false
 [submodule "musl-fts"]
 	path = musl-fts
 	url = https://github.com/libertine-linux-clones/musl-fts.git
@@ -13,7 +13,7 @@
 	update = checkout
 	ignore = none
 	fetchRecurseSubmodules = true
-	shallow = true
+	shallow = false
 [submodule "musl-obstack"]
 	path = musl-obstack
 	url = https://github.com/libertine-linux-clones/musl-obstack.git
@@ -21,7 +21,7 @@
 	update = checkout
 	ignore = none
 	fetchRecurseSubmodules = true
-	shallow = true
+	shallow = false
 [submodule "musl-rpmatch"]
 	path = musl-rpmatch
 	url = https://github.com/libertine-linux-clones/musl-rpmatch.git
@@ -29,4 +29,4 @@
 	update = checkout
 	ignore = none
 	fetchRecurseSubmodules = true
-	shallow = true
+	shallow = false
