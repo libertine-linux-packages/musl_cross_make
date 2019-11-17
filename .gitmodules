@@ -2,6 +2,10 @@
 	path = upstream
 	url = https://github.com/libertine-linux-clones/musl-cross-make.git
 	branch = master
+	update = checkout
+	ignore = none
+	fetchRecurseSubmodules = true
+	shallow = true
 [submodule "musl-fts"]
 	path = musl-fts
 	url = https://github.com/libertine-linux-clones/musl-fts.git
