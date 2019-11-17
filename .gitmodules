@@ -22,3 +22,7 @@
 	path = musl-rpmatch
 	url = https://github.com/libertine-linux-clones/musl-rpmatch.git
 	branch = master
+	update = checkout
+	ignore = none
+	fetchRecurseSubmodules = true
+	shallow = true
