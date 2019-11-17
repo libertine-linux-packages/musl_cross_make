@@ -6,6 +6,10 @@
 	path = musl-fts
 	url = https://github.com/libertine-linux-clones/musl-fts.git
 	branch = master
+	update = checkout
+	ignore = none
+	fetchRecurseSubmodules = true
+	shallow = true
 [submodule "musl-obstack"]
 	path = musl-obstack
 	url = https://github.com/libertine-linux-clones/musl-obstack.git
